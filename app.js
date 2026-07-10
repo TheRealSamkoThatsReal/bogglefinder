@@ -54,8 +54,8 @@ async function loadImageFile(file) {
     { x: mx, y: my }, { x: w - mx, y: my },
     { x: w - mx, y: h - my }, { x: mx, y: h - my },
   ];
-  setupAlign();
   show('align');
+  setupAlign();
 }
 
 $('#file-camera').addEventListener('change', (e) => { if (e.target.files[0]) loadImageFile(e.target.files[0]); });
@@ -83,12 +83,13 @@ function fitCanvas(canvas, imgW, imgH, maxW) {
 }
 
 function setupAlign() {
-  const maxW = Math.min(alignCanvas.parentElement.clientWidth, 720);
+  const maxW = Math.min(alignCanvas.parentElement.clientWidth || 720, 720);
   alignScale = fitCanvas(alignCanvas, state.img.width, state.img.height, maxW);
   drawAlign();
 }
 
 function drawAlign() {
+  if (!state.img) return;
   actx.clearRect(0, 0, alignCanvas.width, alignCanvas.height);
   actx.drawImage(state.img, 0, 0, alignCanvas.width, alignCanvas.height);
   const q = state.quad.map((p) => ({ x: p.x * alignScale, y: p.y * alignScale }));
@@ -151,7 +152,7 @@ function moveDrag(evt) {
   };
   drawAlign();
 }
-function endDrag() { dragHandle = -1; drawAlign(); }
+function endDrag() { if (dragHandle < 0) return; dragHandle = -1; drawAlign(); }
 alignCanvas.addEventListener('mousedown', startDrag);
 window.addEventListener('mousemove', moveDrag);
 window.addEventListener('mouseup', endDrag);
@@ -251,8 +252,8 @@ async function doSolve() {
   state.results = [...map.entries()]
     .map(([word, path]) => ({ word, path, len: word.length, score: scoreWord(word.length) }))
     .sort((a, b) => b.len - a.len || a.word.localeCompare(b.word));
-  renderResults();
   show('results');
+  renderResults();
 }
 
 // Build the background image + quad used for the path overlay.
@@ -294,7 +295,7 @@ let overlayScale = 1;
 
 function fitOverlay() {
   const bg = state.boardBg;
-  const maxW = Math.min(overlay.parentElement.clientWidth, 640);
+  const maxW = Math.min(overlay.parentElement.clientWidth || 640, 640);
   overlayScale = Math.min(maxW / bg.width, 1);
   overlay.width = Math.round(bg.width * overlayScale);
   overlay.height = Math.round(bg.height * overlayScale);
