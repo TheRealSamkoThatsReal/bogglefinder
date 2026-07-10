@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Boggle Finder</title>
+  <meta name="description" content="Scan a Boggle board with your camera and find every word.">
+  <meta name="theme-color" content="#0b1220">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/icon-180.png">
+  <link rel="icon" href="./icons/icon-192.png">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <header class="app-header">
+    <h1>🔤 Boggle Finder</h1>
+    <p class="tagline">Scan a board · find every word · see the path</p>
+  </header>
+
+  <main>
+    <!-- CAPTURE -->
+    <section id="screen-capture" class="screen active">
+      <div class="card">
+        <h2>1 · Scan your board</h2>
+        <label class="field">
+          <span>Board size</span>
+          <select id="size-select">
+            <option value="4x4" selected>4 × 4 (classic)</option>
+            <option value="5x5">5 × 5 (Big Boggle)</option>
+          </select>
+        </label>
+        <div class="btn-stack">
+          <label class="btn primary">
+            📷 Take a photo
+            <input id="file-camera" type="file" accept="image/*" capture="environment" hidden>
+          </label>
+          <label class="btn">
+            🖼️ Choose an image
+            <input id="file-upload" type="file" accept="image/*" hidden>
+          </label>
+          <button id="btn-manual" class="btn ghost">⌨️ Enter letters manually</button>
+        </div>
+        <p class="hint">Dictionary: <span id="dict-count">loading…</span> words</p>
+      </div>
+    </section>
+
+    <!-- ALIGN -->
+    <section id="screen-align" class="screen">
+      <div class="card">
+        <h2>2 · Line up the grid</h2>
+        <p class="hint">Drag the four corner dots so the teal grid sits over the letters.</p>
+        <div class="canvas-wrap"><canvas id="align-canvas"></canvas></div>
+        <p id="ocr-progress" class="progress" hidden></p>
+        <div class="btn-row">
+          <button id="btn-back-capture" class="btn ghost">← Back</button>
+          <button id="btn-skip-ocr" class="btn">Skip OCR</button>
+          <button id="btn-scan" class="btn primary">Scan letters →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- EDIT -->
+    <section id="screen-edit" class="screen">
+      <div class="card">
+        <h2>3 · Check the letters</h2>
+        <p class="hint">Fix any misreads (highlighted cells were low-confidence). A lone <b>Q</b> becomes <b>Qu</b>.</p>
+        <div id="edit-grid" class="edit-grid"></div>
+        <div class="btn-row">
+          <button id="btn-back-align" class="btn ghost">← Back</button>
+          <button id="btn-solve" class="btn primary">Find words →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- RESULTS -->
+    <section id="screen-results" class="screen">
+      <div class="results-layout">
+        <div class="card board-card">
+          <div class="board-head">
+            <h2>Board</h2>
+            <span id="current-word" class="current-word">tap a word</span>
+          </div>
+          <div class="canvas-wrap"><canvas id="overlay-canvas"></canvas></div>
+          <p class="legend"><span class="dot green"></span>start <span class="dot pink"></span>path <span class="dot red"></span>end</p>
+          <div class="btn-row">
+            <button id="btn-edit-again" class="btn ghost">Edit letters</button>
+            <button id="btn-restart" class="btn">New scan</button>
+          </div>
+        </div>
+
+        <div class="card list-card">
+          <div class="stats">
+            <div><b id="stat-count">0</b><span>words</span></div>
+            <div><b id="stat-score">0</b><span>max score</span></div>
+            <div><b id="stat-longest">—</b><span>longest</span></div>
+          </div>
+          <div class="controls">
+            <input id="search" type="search" placeholder="filter…" autocomplete="off">
+            <select id="min-len">
+              <option value="3">3+ letters</option>
+              <option value="4">4+</option>
+              <option value="5">5+</option>
+              <option value="6">6+</option>
+              <option value="7">7+</option>
+            </select>
+          </div>
+          <p class="hint"><span id="list-shown">0</span> shown · longest first</p>
+          <div id="word-list" class="word-list"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
