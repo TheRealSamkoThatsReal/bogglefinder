@@ -1,2 +1,6 @@
 node_modules/
 .DS_Store
+
+# local OCR/autodetect debugging artifacts (not part of the app)
+scratch-*
+cell_*.png

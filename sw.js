@@ -1,4 +1,4 @@
-const CACHE = 'boggle-finder-v7';
+const CACHE = 'boggle-finder-v8';
 const SHELL = [
   './',
   './index.html',
@@ -39,7 +39,7 @@ self.addEventListener('fetch', (e) => {
       }))
     );
   } else {
-    // Cross-origin (Tesseract CDN, lang data): stale-while-revalidate.
+    // Cross-origin (none needed now OCR is local): stale-while-revalidate.
     e.respondWith(
       caches.open(CACHE).then((c) =>
         c.match(req).then((hit) => {

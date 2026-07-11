@@ -10,9 +10,10 @@ drawn over your photo when you tap a word.
 
 1. **Scan** — take a photo (or upload one) of a 4×4 or 5×5 board.
 2. **Align** — drag four corner handles so the grid overlay sits on the letters.
-3. **Read** — [Tesseract.js](https://tesseract.projectnaptha.com/) OCRs each cell at all
-   four 90° rotations and keeps the most-confident letter, so sideways dice are read
-   correctly (a lone **Q** becomes **Qu**). Low-confidence cells are highlighted for you to fix.
+3. **Read** — each cell's letter is isolated (die-face silhouette → eroded to drop the
+   bevel shadow → dark ink inside) and matched against letters rendered in a bold sans
+   font across 24 rotations, so tumbled dice are read at any angle (a lone **Q** becomes
+   **Qu**). It's a rough first pass — cells it's unsure about are highlighted for you to fix.
 4. **Solve** — a trie-backed depth-first search finds every dictionary word reachable
    by the Boggle adjacency rules (8-way neighbours, no cell reused).
 5. **Explore** — words are listed longest-first with Boggle scores; tap one to see the
@@ -39,7 +40,8 @@ No manual scan? Enter the letters by hand and it solves a rendered board instead
 ## Tech
 
 Plain static site — no build step. ES modules, Canvas 2D for the warp/overlay,
-Tesseract.js (CDN) for OCR, a service worker for offline use. Hosted on GitHub Pages.
+a self-contained template-matching OCR (no external engine), a service worker for
+offline use. Hosted on GitHub Pages.
 
 ## Local development
 

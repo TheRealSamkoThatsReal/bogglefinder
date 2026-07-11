@@ -245,7 +245,7 @@ async function runOcr() {
   btn.disabled = true;
   const prog = $('#ocr-progress');
   prog.hidden = false;
-  prog.textContent = 'Loading OCR engine…';
+  prog.textContent = 'Reading the board…';
   try {
     const res = await scanBoard(state.img, state.quad, state.rows, state.cols,
       (done, total) => { prog.textContent = `Reading letters… ${done}/${total}`; });

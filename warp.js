@@ -44,102 +44,123 @@ function drawTriangle(ctx, img, s, d) {
   ctx.restore();
 }
 
-// Best-guess the board quad by finding the tray: the largest contrasting blob
-// around the image centre, then its four extreme corner points (works for a
-// board photographed at an angle). Returns [TL,TR,BR,BL] in full-res px, or null.
+// Best-guess the board quad by finding the DICE directly. Boggle dice are bright
+// and near-white; the tray gridlines between them are dark, so tray+dice never
+// form one blob — the old "largest contrasting region" approach found a single
+// die and gave up. Instead: threshold for bright, low-saturation pixels (the die
+// faces), keep every sizeable blob, drop stray outliers (table glare, a stray
+// die outside the tray), and take the four extreme corners of their union.
+// Returns [TL,TR,BR,BL] in full-res px, or null if no convincing grid is found.
 export function autoDetectQuad(img) {
-  const scale = 240 / Math.max(img.width, img.height);
+  const scale = 320 / Math.max(img.width, img.height);
   const w = Math.max(1, Math.round(img.width * scale));
   const h = Math.max(1, Math.round(img.height * scale));
   const cv = document.createElement('canvas');
   cv.width = w; cv.height = h;
-  cv.getContext('2d').drawImage(img, 0, 0, w, h);
-  const px = cv.getContext('2d').getImageData(0, 0, w, h).data;
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(img, 0, 0, w, h);
+  const px = ctx.getImageData(0, 0, w, h).data;
   const N = w * h;
-  // Estimate the table background from the outer border ring; the board is
-  // everything that differs from it (tray + dice together = one blob).
-  const ring = Math.max(2, (Math.min(w, h) * 0.06) | 0);
-  let bR = 0, bG = 0, bB = 0, bc = 0;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (x < ring || x >= w - ring || y < ring || y >= h - ring) {
-        const k = (y * w + x) * 4; bR += px[k]; bG += px[k + 1]; bB += px[k + 2]; bc++;
-      }
-    }
-  }
-  bR /= bc; bG /= bc; bB /= bc;
-  const dist = new Uint8Array(N);
+
+  // Brightness (max channel) and saturation for every pixel.
+  const val = new Uint8Array(N);
+  const sat = new Float32Array(N);
+  const hist = new Array(256).fill(0);
   for (let j = 0; j < N; j++) {
-    const k = j * 4;
-    dist[j] = Math.min(255, Math.round(Math.hypot(px[k] - bR, px[k + 1] - bG, px[k + 2] - bB)));
+    const k = j * 4, r = px[k], g = px[k + 1], b = px[k + 2];
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    val[j] = mx; sat[j] = mx > 0 ? (mx - mn) / mx : 0;
+    hist[mx]++;
   }
-  // Threshold at the background noise level so the whole board (tray + dice)
-  // stays one blob, rather than Otsu splitting dice from tray.
-  let dSum = 0, dSum2 = 0;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (x < ring || x >= w - ring || y < ring || y >= h - ring) {
-        const d = dist[y * w + x]; dSum += d; dSum2 += d * d;
+  // Otsu on brightness to separate the bright dice from the darker background.
+  let sumAll = 0;
+  for (let t = 0; t < 256; t++) sumAll += t * hist[t];
+  let sumB = 0, wB = 0, maxVar = -1, vThr = 127;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t]; if (!wB) continue;
+    const wF = N - wB; if (!wF) break;
+    sumB += t * hist[t];
+    const mB = sumB / wB, mF = (sumAll - sumB) / wF;
+    const bt = wB * wF * (mB - mF) * (mB - mF);
+    if (bt > maxVar) { maxVar = bt; vThr = t; }
+  }
+  // Dice = bright AND low-saturation (white-ish), which excludes coloured wood
+  // and the coloured tray even when they are locally bright.
+  const mask = new Uint8Array(N);
+  for (let j = 0; j < N; j++) mask[j] = (val[j] > vThr && sat[j] < 0.30) ? 1 : 0;
+
+  // Connected components (8-connectivity so a single die stays whole).
+  const lab = new Int32Array(N);
+  const sizes = [0]; // 1-indexed; sizes[0] unused
+  const stack = [];
+  let nComp = 0;
+  for (let s = 0; s < N; s++) {
+    if (!mask[s] || lab[s]) continue;
+    nComp++; lab[s] = nComp; let sz = 0;
+    stack.length = 0; stack.push(s);
+    while (stack.length) {
+      const p = stack.pop(); sz++;
+      const x = p % w, y = (p / w) | 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+          const q = ny * w + nx;
+          if (mask[q] && !lab[q]) { lab[q] = nComp; stack.push(q); }
+        }
       }
     }
+    sizes.push(sz);
   }
-  const bm = dSum / bc, bStd = Math.sqrt(Math.max(0, dSum2 / bc - bm * bm));
-  const thr = Math.min(120, Math.max(22, bm + 3 * bStd));
-  const mask = new Uint8Array(N);
-  for (let j = 0; j < N; j++) mask[j] = dist[j] > thr ? 1 : 0;
+  if (nComp === 0) return null;
 
-  // Largest connected component (4-connectivity, iterative flood fill).
-  const seen = new Uint8Array(N);
-  let comp = [], compSize = 0;
-  const stack = [];
-  for (let s = 0; s < N; s++) {
-    if (!mask[s] || seen[s]) continue;
-    const cur = []; stack.length = 0; stack.push(s); seen[s] = 1;
-    while (stack.length) {
-      const p = stack.pop(); cur.push(p);
-      const x = p % w, y = (p / w) | 0;
-      if (x > 0 && mask[p - 1] && !seen[p - 1]) { seen[p - 1] = 1; stack.push(p - 1); }
-      if (x < w - 1 && mask[p + 1] && !seen[p + 1]) { seen[p + 1] = 1; stack.push(p + 1); }
-      if (y > 0 && mask[p - w] && !seen[p - w]) { seen[p - w] = 1; stack.push(p - w); }
-      if (y < h - 1 && mask[p + w] && !seen[p + w]) { seen[p + w] = 1; stack.push(p + w); }
-    }
-    if (cur.length > compSize) { compSize = cur.length; comp = cur; }
+  // Keep components big enough to be a die (drop specks and letter-glints).
+  let maxSize = 0;
+  for (let i = 1; i <= nComp; i++) if (sizes[i] > maxSize) maxSize = sizes[i];
+  const minSize = Math.max(0.0025 * N, 0.06 * maxSize);
+  const keep = new Uint8Array(nComp + 1);
+  const cents = []; // { id, cx, cy }
+  for (let i = 1; i <= nComp; i++) if (sizes[i] >= minSize) keep[i] = 1;
+  // Centroids of kept components.
+  const sumX = new Float64Array(nComp + 1), sumY = new Float64Array(nComp + 1);
+  for (let p = 0; p < N; p++) {
+    const i = lab[p]; if (!i || !keep[i]) continue;
+    sumX[i] += p % w; sumY[i] += (p / w) | 0;
   }
-  if (compSize < N * 0.10) return null; // no convincing board region
+  for (let i = 1; i <= nComp; i++) {
+    if (!keep[i]) continue;
+    cents.push({ id: i, cx: sumX[i] / sizes[i], cy: sumY[i] / sizes[i] });
+  }
+  if (cents.length < 4) return null; // not enough dice to trust a grid
 
-  // The blob above is the whole tray (rim included). The grid we want sits on
-  // the DICE, which are the brighter faces inside the tray — narrow to those so
-  // the quad lands on the die grid, not the outer rim.
-  const hist2 = new Array(256).fill(0);
-  for (const p of comp) hist2[(px[p * 4] * 0.299 + px[p * 4 + 1] * 0.587 + px[p * 4 + 2] * 0.114) | 0]++;
-  let sum2 = 0;
-  for (let t = 0; t < 256; t++) sum2 += t * hist2[t];
-  let sB = 0, wB2 = 0, bv = -1, dThr = 127;
-  for (let t = 0; t < 256; t++) {
-    wB2 += hist2[t]; if (!wB2) continue;
-    const wF = compSize - wB2; if (!wF) break;
-    sB += t * hist2[t];
-    const mB = sB / wB2, mF = (sum2 - sB) / wF;
-    const bt = wB2 * wF * (mB - mF) * (mB - mF);
-    if (bt > bv) { bv = bt; dThr = t; }
-  }
-  const dice = [];
-  for (const p of comp) {
-    const g = (px[p * 4] * 0.299 + px[p * 4 + 1] * 0.587 + px[p * 4 + 2] * 0.114) | 0;
-    if (g > dThr) dice.push(p);
-  }
-  // Use the dice extent only if it's a believable share of the board.
-  const pts = dice.length > compSize * 0.15 && dice.length < compSize * 0.95 ? dice : comp;
+  // Reject spatial outliers: any kept blob far from the median die centroid
+  // (a stray die on the table, a bright reflection) shouldn't stretch the quad.
+  const median = (arr) => {
+    const a = arr.slice().sort((x, y) => x - y), m = a.length >> 1;
+    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+  };
+  const mcx = median(cents.map((c) => c.cx)), mcy = median(cents.map((c) => c.cy));
+  const dists = cents.map((c) => Math.hypot(c.cx - mcx, c.cy - mcy));
+  const medD = median(dists);
+  const mad = median(dists.map((d) => Math.abs(d - medD)));
+  const p75 = dists.slice().sort((a, b) => a - b)[Math.min(dists.length - 1, Math.floor(dists.length * 0.75))];
+  const keepR = Math.max(medD + 2.5 * mad * 1.4826, p75 * 1.5);
+  const keptIds = new Set(cents.filter((c, i) => dists[i] <= keepR).map((c) => c.id));
+  if (keptIds.size < 4) return null;
 
-  // Four extreme points → quad corners (robust to rotation/perspective).
-  let tl, tr, br, bl, tlv = 1e9, brv = -1e9, trv = -1e9, blv = 1e9;
-  for (const p of pts) {
+  // Four extreme points over the union of kept dice → quad corners.
+  let tl, tr, br, bl, tlv = 1e9, brv = -1e9, trv = -1e9, blv = 1e9, count = 0;
+  for (let p = 0; p < N; p++) {
+    if (!keptIds.has(lab[p])) continue;
+    count++;
     const x = p % w, y = (p / w) | 0, s = x + y, d = x - y;
     if (s < tlv) { tlv = s; tl = { x, y }; }
     if (s > brv) { brv = s; br = { x, y }; }
     if (d > trv) { trv = d; tr = { x, y }; }
     if (d < blv) { blv = d; bl = { x, y }; }
   }
+  if (count < N * 0.05) return null; // too little dice area to be a board
   const up = (p) => ({ x: p.x / scale, y: p.y / scale });
   return [up(tl), up(tr), up(br), up(bl)];
 }
