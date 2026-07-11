@@ -10,8 +10,9 @@ drawn over your photo when you tap a word.
 
 1. **Scan** — take a photo (or upload one) of a 4×4 or 5×5 board.
 2. **Align** — drag four corner handles so the grid overlay sits on the letters.
-3. **Read** — [Tesseract.js](https://tesseract.projectnaptha.com/) OCRs each cell
-   (a lone **Q** becomes **Qu**). Low-confidence cells are highlighted for you to fix.
+3. **Read** — [Tesseract.js](https://tesseract.projectnaptha.com/) OCRs each cell at all
+   four 90° rotations and keeps the most-confident letter, so sideways dice are read
+   correctly (a lone **Q** becomes **Qu**). Low-confidence cells are highlighted for you to fix.
 4. **Solve** — a trie-backed depth-first search finds every dictionary word reachable
    by the Boggle adjacency rules (8-way neighbours, no cell reused).
 5. **Explore** — words are listed longest-first with Boggle scores; tap one to see the
@@ -22,7 +23,7 @@ No manual scan? Enter the letters by hand and it solves a rendered board instead
 ## Features
 
 - 📷 Works from the camera or a saved image (EXIF orientation handled)
-- 🔠 Per-cell OCR with a perspective-correct board rectifier
+- 🔠 Per-cell OCR with a perspective-correct board rectifier and rotation-invariant reading
 - ✏️ Editable grid with confidence highlighting and automatic **Qu**
 - 🧠 ~172k-word [ENABLE](https://github.com/dolph/dictionary) dictionary, exhaustive DFS
 - 🗺️ Path overlay drawn on the original photo (start = green, end = red)
