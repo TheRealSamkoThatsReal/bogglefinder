@@ -107,9 +107,33 @@ export function autoDetectQuad(img) {
   }
   if (compSize < N * 0.10) return null; // no convincing board region
 
+  // The blob above is the whole tray (rim included). The grid we want sits on
+  // the DICE, which are the brighter faces inside the tray — narrow to those so
+  // the quad lands on the die grid, not the outer rim.
+  const hist2 = new Array(256).fill(0);
+  for (const p of comp) hist2[(px[p * 4] * 0.299 + px[p * 4 + 1] * 0.587 + px[p * 4 + 2] * 0.114) | 0]++;
+  let sum2 = 0;
+  for (let t = 0; t < 256; t++) sum2 += t * hist2[t];
+  let sB = 0, wB2 = 0, bv = -1, dThr = 127;
+  for (let t = 0; t < 256; t++) {
+    wB2 += hist2[t]; if (!wB2) continue;
+    const wF = compSize - wB2; if (!wF) break;
+    sB += t * hist2[t];
+    const mB = sB / wB2, mF = (sum2 - sB) / wF;
+    const bt = wB2 * wF * (mB - mF) * (mB - mF);
+    if (bt > bv) { bv = bt; dThr = t; }
+  }
+  const dice = [];
+  for (const p of comp) {
+    const g = (px[p * 4] * 0.299 + px[p * 4 + 1] * 0.587 + px[p * 4 + 2] * 0.114) | 0;
+    if (g > dThr) dice.push(p);
+  }
+  // Use the dice extent only if it's a believable share of the board.
+  const pts = dice.length > compSize * 0.15 && dice.length < compSize * 0.95 ? dice : comp;
+
   // Four extreme points → quad corners (robust to rotation/perspective).
   let tl, tr, br, bl, tlv = 1e9, brv = -1e9, trv = -1e9, blv = 1e9;
-  for (const p of comp) {
+  for (const p of pts) {
     const x = p % w, y = (p / w) | 0, s = x + y, d = x - y;
     if (s < tlv) { tlv = s; tl = { x, y }; }
     if (s > brv) { brv = s; br = { x, y }; }
