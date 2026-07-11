@@ -210,9 +210,9 @@ async function runOcr() {
 }
 
 // ---------- Edit grid ----------
-// Recognised multi-letter Boggle cubes: Qu (classic) and In (Super Big Boggle).
-// The solver treats these as one cell worth two letters.
-const BLOCKS = new Set(['QU', 'IN']);
+// Recognised multi-letter Boggle cubes: Qu (classic) plus the Super Big Boggle
+// blocks. The solver treats each as one cell worth two letters.
+const BLOCKS = new Set(['QU', 'IN', 'AN', 'TH', 'HE', 'ER']);
 
 function buildEditGrid() {
   const grid = $('#edit-grid');

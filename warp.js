@@ -90,53 +90,91 @@ export function cellColorImages(img, quad, rows, cols, cellPx = 128) {
   return arr;
 }
 
-// Extract one cell as a preprocessed high-contrast canvas ready for OCR.
-export function extractCell(rectCanvas, rows, cols, r, c, cellPx, out = 140) {
-  const inset = Math.round(cellPx * 0.16); // trim grid lines / die edges
+// Extract one cell as a clean, centred black-on-white glyph ready for OCR.
+// Strategy that works on real photos: binarise (Otsu), decide text polarity by
+// the majority-is-background rule, find the glyph's bounding box, then re-centre
+// and scale it onto a white canvas — exactly what Tesseract wants to see.
+export function extractCell(rectCanvas, rows, cols, r, c, cellPx, out = 180) {
+  const inset = Math.round(cellPx * 0.11); // trim tray gaps / die edges
   const sx = c * cellPx + inset;
   const sy = r * cellPx + inset;
-  const sSize = cellPx - inset * 2;
+  const W = cellPx - inset * 2;
 
-  const cv = document.createElement('canvas');
-  cv.width = out; cv.height = out;
-  const ctx = cv.getContext('2d');
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(0, 0, out, out);
-  const pad = Math.round(out * 0.12);
-  ctx.drawImage(rectCanvas, sx, sy, sSize, sSize, pad, pad, out - pad * 2, out - pad * 2);
+  const work = document.createElement('canvas');
+  work.width = W; work.height = W;
+  const wctx = work.getContext('2d');
+  wctx.drawImage(rectCanvas, sx, sy, W, W, 0, 0, W, W);
 
-  // Grayscale + Otsu threshold, orient to dark-text-on-white.
-  const im = ctx.getImageData(0, 0, out, out);
-  const px = im.data;
+  const px = wctx.getImageData(0, 0, W, W).data;
+  const N = W * W;
+  const gray = new Uint8Array(N);
   const hist = new Array(256).fill(0);
-  const gray = new Uint8Array(out * out);
   for (let i = 0, j = 0; i < px.length; i += 4, j++) {
     const g = (px[i] * 0.299 + px[i + 1] * 0.587 + px[i + 2] * 0.114) | 0;
     gray[j] = g; hist[g]++;
   }
-  const total = out * out;
+
+  // Otsu threshold.
   let sum = 0;
   for (let t = 0; t < 256; t++) sum += t * hist[t];
   let sumB = 0, wB = 0, maxVar = -1, thr = 127;
   for (let t = 0; t < 256; t++) {
     wB += hist[t];
     if (wB === 0) continue;
-    const wF = total - wB;
+    const wF = N - wB;
     if (wF === 0) break;
     sumB += t * hist[t];
     const mB = sumB / wB, mF = (sum - sumB) / wF;
     const between = wB * wF * (mB - mF) * (mB - mF);
     if (between > maxVar) { maxVar = between; thr = t; }
   }
+
+  // Ink = the minority class (letters cover less area than the die face).
   let darkCount = 0;
-  for (let j = 0; j < gray.length; j++) if (gray[j] < thr) darkCount++;
-  const invert = darkCount > total * 0.5; // if mostly dark, letters are light
-  for (let i = 0, j = 0; i < px.length; i += 4, j++) {
-    let dark = gray[j] < thr;
-    if (invert) dark = !dark;
-    const v = dark ? 0 : 255;
-    px[i] = px[i + 1] = px[i + 2] = v;
+  for (let j = 0; j < N; j++) if (gray[j] < thr) darkCount++;
+  const textIsDark = darkCount <= N - darkCount;
+
+  // Bounding box of ink, ignoring a thin outer ring (tray/edge bleed).
+  const ring = Math.round(W * 0.04);
+  let minX = W, minY = W, maxX = -1, maxY = -1, inkCount = 0;
+  const ink = new Uint8Array(N);
+  for (let y = ring; y < W - ring; y++) {
+    for (let x = ring; x < W - ring; x++) {
+      const on = (gray[y * W + x] < thr) === textIsDark;
+      if (on) {
+        ink[y * W + x] = 1; inkCount++;
+        if (x < minX) minX = x; if (x > maxX) maxX = x;
+        if (y < minY) minY = y; if (y > maxY) maxY = y;
+      }
+    }
   }
-  ctx.putImageData(im, 0, 0);
-  return cv;
+
+  const outc = document.createElement('canvas');
+  outc.width = out; outc.height = out;
+  const octx = outc.getContext('2d');
+  octx.fillStyle = '#fff';
+  octx.fillRect(0, 0, out, out);
+
+  const frac = inkCount / N;
+  if (maxX < minX || frac < 0.004 || frac > 0.85) return outc; // nothing usable
+
+  // Copy the isolated glyph to its own canvas, then draw it centred at ~70%.
+  const gw = maxX - minX + 1, gh = maxY - minY + 1;
+  const glyph = document.createElement('canvas');
+  glyph.width = gw; glyph.height = gh;
+  const gim = glyph.getContext('2d').createImageData(gw, gh);
+  for (let y = 0; y < gh; y++) {
+    for (let x = 0; x < gw; x++) {
+      const v = ink[(minY + y) * W + (minX + x)] ? 0 : 255;
+      const k = (y * gw + x) * 4;
+      gim.data[k] = gim.data[k + 1] = gim.data[k + 2] = v; gim.data[k + 3] = 255;
+    }
+  }
+  glyph.getContext('2d').putImageData(gim, 0, 0);
+
+  const scale = (out * 0.7) / Math.max(gw, gh);
+  const dw = gw * scale, dh = gh * scale;
+  octx.imageSmoothingEnabled = true;
+  octx.drawImage(glyph, 0, 0, gw, gh, (out - dw) / 2, (out - dh) / 2, dw, dh);
+  return outc;
 }
