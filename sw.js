@@ -1,4 +1,4 @@
-const CACHE = 'boggle-finder-v9';
+const CACHE = 'boggle-finder-v10';
 const SHELL = [
   './',
   './index.html',

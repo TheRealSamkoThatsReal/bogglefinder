@@ -13,9 +13,9 @@ drawn over your photo when you tap a word.
 3. **Read** — each cell's letter is isolated (die-face silhouette → eroded to drop the
    bevel shadow → dark ink inside) and matched against letters rendered in a bold sans
    font across 24 rotations, so tumbled dice are read at any angle (a lone **Q** becomes
-   **Qu**). The orientation dot printed under **M / W / Z** is used to tell them apart
-   from their upside-down twins. It's a rough first pass — cells it's unsure about are
-   highlighted for you to fix.
+   **Qu**). The orientation dot printed under a letter is used to tell **M** from **W**
+   (they're the same shape flipped). It's a rough first pass — cells it's unsure about
+   are highlighted for you to fix.
 4. **Solve** — a trie-backed depth-first search finds every dictionary word reachable
    by the Boggle adjacency rules (8-way neighbours, no cell reused).
 5. **Explore** — words are listed longest-first with Boggle scores; tap one to see the

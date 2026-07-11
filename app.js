@@ -499,7 +499,7 @@ window.addEventListener('resize', () => { if (state.boardBg && screens.results.c
 
 // ---------- Version ----------
 // Bump on each release; keep the sw.js cache name in step so clients refresh.
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const vEl = $('#app-version');
 if (vEl) vEl.textContent = 'v' + APP_VERSION;
 

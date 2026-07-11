@@ -328,10 +328,11 @@ function isolate(cellData) {
   return { w: b.w, h: b.h, data: tight, dotAngle };
 }
 
-// Some Boggle cubes print a small dot under the letter to mark "down" (so M vs W
-// and Z vs N can be told apart). Find a small, compact ink blob that sits inside
-// the die but apart from the letter; return the clockwise-from-up angle pointing
-// at it (i.e. the letter's "down"), or null if there's no unambiguous single dot.
+// Some Boggle cubes print a mark under the letter to show "down" — a short
+// underline or a row of small dots, so M/W and Z/N can be told apart. Find the
+// small ink pieces sitting inside the die but off the letter; if they cluster to
+// one side, return the clockwise-from-up angle toward them (the letter's "down"),
+// else null. Only consulted for M/W/Z/N, so occasional false hits are cheap.
 function findDot(sil, gray, thr, letter, lcx, lcy, dieMax, W, N) {
   const dark = new Uint8Array(N);
   let dieArea = 0;
@@ -339,42 +340,41 @@ function findDot(sil, gray, thr, letter, lcx, lcy, dieMax, W, N) {
   const { lab, n, sizes } = label4(dark, W, W);
   if (!n) return null;
   const overlap = new Float64Array(n + 1), cx = new Float64Array(n + 1), cy = new Float64Array(n + 1);
-  const bx0 = new Int32Array(n + 1).fill(W), by0 = new Int32Array(n + 1).fill(W);
-  const bx1 = new Int32Array(n + 1).fill(-1), by1 = new Int32Array(n + 1).fill(-1);
   for (let p = 0; p < N; p++) {
     const l = lab[p]; if (!l) continue;
-    const x = p % W, y = (p / W) | 0;
-    cx[l] += x; cy[l] += y; if (letter[p]) overlap[l]++;
-    if (x < bx0[l]) bx0[l] = x; if (x > bx1[l]) bx1[l] = x;
-    if (y < by0[l]) by0[l] = y; if (y > by1[l]) by1[l] = y;
+    cx[l] += p % W; cy[l] += (p / W) | 0; if (letter[p]) overlap[l]++;
   }
-  const minA = 0.003 * dieArea, maxA = 0.05 * dieArea;
-  const cands = [];
+  // Small blobs, off the letter, out toward the die's edge = candidate mark bits
+  // (a dash may split into a few, and the dots are separate — so allow several).
+  const minP = Math.max(6, 0.0005 * dieArea), maxP = 0.03 * dieArea;
+  const pieces = [];
   for (let i = 1; i <= n; i++) {
     const s = sizes[i];
-    if (s < minA || s > maxA) continue;
-    if (overlap[i] > 0.15 * s) continue;          // part of the letter itself
-    const bw = bx1[i] - bx0[i] + 1, bh = by1[i] - by0[i] + 1;
-    if (Math.max(bw, bh) / Math.min(bw, bh) > 1.8) continue; // not roundish
-    if (s / (bw * bh) < 0.5) continue;            // not solid/compact
+    if (s < minP || s > maxP) continue;
+    if (overlap[i] > 0.25 * s) continue;
     const dcx = cx[i] / s, dcy = cy[i] / s;
-    if (Math.hypot(dcx - lcx, dcy - lcy) < 0.15 * dieMax) continue; // basically on the letter
-    cands.push({ dcx, dcy });
+    const dist = Math.hypot(dcx - lcx, dcy - lcy);
+    if (dist < 0.12 * dieMax || dist > 0.85 * dieMax) continue;
+    pieces.push({ dcx, dcy, s });
   }
-  if (cands.length !== 1) return null;            // only trust a single clear dot
-  let ang = Math.atan2(cands[0].dcx - lcx, -(cands[0].dcy - lcy)) * 180 / Math.PI;
+  if (!pieces.length) return null;
+  let mx = 0, my = 0, ma = 0;
+  for (const p of pieces) { mx += p.dcx * p.s; my += p.dcy * p.s; ma += p.s; }
+  mx /= ma; my /= ma;
+  if (ma > 0.10 * dieArea) return null;                  // too big to be a mark
+  for (const p of pieces) if (Math.hypot(p.dcx - mx, p.dcy - my) > 0.28 * dieMax) return null; // scattered, not a mark
+  const ang = Math.atan2(mx - lcx, -(my - lcy)) * 180 / Math.PI;
   return ang < 0 ? ang + 360 : ang;
 }
 
 // ---------- matching ----------
-// These read as rotations of each other, so free rotation can't tell them apart;
-// the orientation dot decides. Cubes that carry a dot: M, W, Z (not N).
-const AMBIGUOUS = new Set(['M', 'W', 'Z', 'N']);
-const DOTTED = new Set(['M', 'W', 'Z']);
+// M and W are the same shape flipped 180°, so free rotation can't tell which way
+// is up; the orientation dot (printed under the letter) decides.
+const TWIN = { M: 'W', W: 'M' };
 
-// Best NCC per template across the given glyph rotations.
+// Best NCC per template across the glyph rotations, with the winning angle.
 function matchAngles(mask, angles) {
-  const scores = new Map();
+  const best = new Map(); // name -> { score, angle }
   for (const deg of angles) {
     const rv = normVec(rotateMask(mask, deg));
     if (!rv) continue;
@@ -382,35 +382,30 @@ function matchAngles(mask, angles) {
       let dot = 0;
       const a = rv, b = t.vec;
       for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
-      if (dot > (scores.get(t.name) ?? -2)) scores.set(t.name, dot);
+      const cur = best.get(t.name);
+      if (!cur || dot > cur.score) best.set(t.name, { score: dot, angle: deg });
     }
   }
-  return [...scores.entries()].sort((a, b) => b[1] - a[1]);
+  return [...best.entries()].map(([name, v]) => ({ name, score: v.score, angle: v.angle }))
+    .sort((a, b) => b.score - a.score);
 }
 
 function classify(mask) {
-  let ranked = matchAngles(mask, ANGLES);
+  const ranked = matchAngles(mask, ANGLES);
   if (!ranked.length) return { char: '', confidence: 0 };
+  let bestName = ranked[0].name;
+  const best = ranked[0].score, runnerUp = ranked[1] ? ranked[1].score : 0;
 
-  // Disambiguate M/W/Z/N with the orientation dot when the top guess is one.
-  if (AMBIGUOUS.has(ranked[0][0])) {
-    if (mask.dotAngle != null) {
-      // Re-read at the orientation that puts the dot at the bottom.
-      const canon = ((180 - mask.dotAngle) % 360 + 360) % 360;
-      const angles = [];
-      for (let d = -20; d <= 20; d += 5) angles.push(((canon + d) % 360 + 360) % 360);
-      const r2 = matchAngles(mask, angles);
-      if (r2.length) ranked = r2;
-    } else {
-      // No dot ⇒ it can't be a dotted cube; drop those and re-pick (usually N).
-      const r2 = ranked.filter(([n]) => !DOTTED.has(n));
-      if (r2.length) ranked = r2;
-    }
+  // M vs W: the winning rotation makes the glyph upright for `bestName`; if the
+  // dot then lands at the TOP rather than the bottom, the letter is really its
+  // flipped twin. A coarse bottom-vs-top test — robust to a rough dot direction.
+  if (TWIN[bestName] && mask.dotAngle != null) {
+    const dotAfter = ((mask.dotAngle + ranked[0].angle) % 360 + 360) % 360;
+    const toBottom = Math.abs(180 - dotAfter);
+    const toTop = Math.min(dotAfter, 360 - dotAfter);
+    if (toTop < toBottom) bestName = TWIN[bestName];
   }
 
-  let bestName = ranked[0][0];
-  const best = ranked[0][1];
-  const runnerUp = ranked[1] ? ranked[1][1] : 0;
   if (bestName === 'Q') bestName = 'QU'; // a lone Q is always Qu
   return { char: bestName, confidence: confidence(best, best - runnerUp) };
 }

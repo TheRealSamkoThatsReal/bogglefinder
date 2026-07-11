@@ -115,14 +115,23 @@ export function autoDetectQuad(img) {
   }
   if (nComp === 0) return null;
 
-  // Keep components big enough to be a die (drop specks and letter-glints).
-  let maxSize = 0;
-  for (let i = 1; i <= nComp; i++) if (sizes[i] > maxSize) maxSize = sizes[i];
-  const minSize = Math.max(0.0025 * N, 0.06 * maxSize);
+  const median = (arr) => {
+    const a = arr.slice().sort((x, y) => x - y), m = a.length >> 1;
+    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+  };
+
+  // Candidate blobs above a speckle floor.
+  const cand = [];
+  for (let i = 1; i <= nComp; i++) if (sizes[i] >= Math.max(40, 0.001 * N)) cand.push(i);
+  if (cand.length < 4) return null;
+  // Dice are near-uniform in size, so the median candidate IS a die. Keep only
+  // die-sized blobs — table glare/reflections are much larger, letter-glints and
+  // texture much smaller — so an oversized bright patch can't stretch the quad.
+  const medSize = median(cand.map((i) => sizes[i]));
   const keep = new Uint8Array(nComp + 1);
-  const cents = []; // { id, cx, cy }
-  for (let i = 1; i <= nComp; i++) if (sizes[i] >= minSize) keep[i] = 1;
+  for (const i of cand) if (sizes[i] >= 0.35 * medSize && sizes[i] <= 2.5 * medSize) keep[i] = 1;
   // Centroids of kept components.
+  const cents = []; // { id, cx, cy }
   const sumX = new Float64Array(nComp + 1), sumY = new Float64Array(nComp + 1);
   for (let p = 0; p < N; p++) {
     const i = lab[p]; if (!i || !keep[i]) continue;
@@ -135,11 +144,7 @@ export function autoDetectQuad(img) {
   if (cents.length < 4) return null; // not enough dice to trust a grid
 
   // Reject spatial outliers: any kept blob far from the median die centroid
-  // (a stray die on the table, a bright reflection) shouldn't stretch the quad.
-  const median = (arr) => {
-    const a = arr.slice().sort((x, y) => x - y), m = a.length >> 1;
-    return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
-  };
+  // (a stray die on the table, a die-sized reflection) shouldn't stretch the quad.
   const mcx = median(cents.map((c) => c.cx)), mcy = median(cents.map((c) => c.cy));
   const dists = cents.map((c) => Math.hypot(c.cx - mcx, c.cy - mcy));
   const medD = median(dists);
