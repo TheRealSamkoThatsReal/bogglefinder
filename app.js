@@ -1,5 +1,5 @@
 import { buildTrie, solve, scoreWord } from './solver.js';
-import { bilinear, cellCenter, cellColorImages } from './warp.js';
+import { bilinear, cellCenter, cellColorImages, autoDetectQuad } from './warp.js';
 import { scanBoard } from './ocr.js';
 
 // ---------- State ----------
@@ -48,15 +48,29 @@ $('#size-select').addEventListener('change', (e) => {
 async function loadImageFile(file) {
   const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
   state.img = bitmap;
-  // Default quad: 10% inset rectangle.
-  const w = bitmap.width, h = bitmap.height;
-  const mx = w * 0.1, my = h * 0.1;
-  state.quad = [
-    { x: mx, y: my }, { x: w - mx, y: my },
-    { x: w - mx, y: h - my }, { x: mx, y: h - my },
-  ];
+  state.quad = defaultQuad(bitmap);
+  const auto = tryAutoDetect(); // snap corners to the tray if we can find it
   show('align');
   setupAlign();
+  const prog = $('#ocr-progress');
+  if (auto) {
+    prog.hidden = false;
+    prog.textContent = 'Corners auto-detected — drag any dot to fine-tune.';
+    setTimeout(() => { prog.hidden = true; }, 2800);
+  }
+}
+
+function defaultQuad(bitmap) {
+  const w = bitmap.width, h = bitmap.height, mx = w * 0.1, my = h * 0.1;
+  return [{ x: mx, y: my }, { x: w - mx, y: my }, { x: w - mx, y: h - my }, { x: mx, y: h - my }];
+}
+
+function tryAutoDetect() {
+  try {
+    const q = autoDetectQuad(state.img);
+    if (q) { state.quad = q; return true; }
+  } catch (e) { /* fall back to the inset default */ }
+  return false;
 }
 
 $('#file-camera').addEventListener('change', (e) => { if (e.target.files[0]) loadImageFile(e.target.files[0]); });
@@ -164,6 +178,17 @@ alignCanvas.addEventListener('touchend', endDrag);
 window.addEventListener('resize', () => { if (state.img && screens.align.classList.contains('active')) setupAlign(); });
 
 $('#btn-back-capture').addEventListener('click', () => show('capture'));
+$('#btn-autofit').addEventListener('click', () => {
+  const prog = $('#ocr-progress');
+  prog.hidden = false;
+  if (tryAutoDetect()) {
+    drawAlign();
+    prog.textContent = 'Corners auto-detected — drag to fine-tune.';
+  } else {
+    prog.textContent = "Couldn't find the tray automatically — drag the corners.";
+  }
+  setTimeout(() => { prog.hidden = true; }, 2800);
+});
 $('#btn-scan').addEventListener('click', runOcr);
 $('#btn-skip-ocr').addEventListener('click', () => {
   const n = state.rows * state.cols;

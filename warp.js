@@ -44,6 +44,82 @@ function drawTriangle(ctx, img, s, d) {
   ctx.restore();
 }
 
+// Best-guess the board quad by finding the tray: the largest contrasting blob
+// around the image centre, then its four extreme corner points (works for a
+// board photographed at an angle). Returns [TL,TR,BR,BL] in full-res px, or null.
+export function autoDetectQuad(img) {
+  const scale = 240 / Math.max(img.width, img.height);
+  const w = Math.max(1, Math.round(img.width * scale));
+  const h = Math.max(1, Math.round(img.height * scale));
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  cv.getContext('2d').drawImage(img, 0, 0, w, h);
+  const px = cv.getContext('2d').getImageData(0, 0, w, h).data;
+  const N = w * h;
+  // Estimate the table background from the outer border ring; the board is
+  // everything that differs from it (tray + dice together = one blob).
+  const ring = Math.max(2, (Math.min(w, h) * 0.06) | 0);
+  let bR = 0, bG = 0, bB = 0, bc = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (x < ring || x >= w - ring || y < ring || y >= h - ring) {
+        const k = (y * w + x) * 4; bR += px[k]; bG += px[k + 1]; bB += px[k + 2]; bc++;
+      }
+    }
+  }
+  bR /= bc; bG /= bc; bB /= bc;
+  const dist = new Uint8Array(N);
+  for (let j = 0; j < N; j++) {
+    const k = j * 4;
+    dist[j] = Math.min(255, Math.round(Math.hypot(px[k] - bR, px[k + 1] - bG, px[k + 2] - bB)));
+  }
+  // Threshold at the background noise level so the whole board (tray + dice)
+  // stays one blob, rather than Otsu splitting dice from tray.
+  let dSum = 0, dSum2 = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (x < ring || x >= w - ring || y < ring || y >= h - ring) {
+        const d = dist[y * w + x]; dSum += d; dSum2 += d * d;
+      }
+    }
+  }
+  const bm = dSum / bc, bStd = Math.sqrt(Math.max(0, dSum2 / bc - bm * bm));
+  const thr = Math.min(120, Math.max(22, bm + 3 * bStd));
+  const mask = new Uint8Array(N);
+  for (let j = 0; j < N; j++) mask[j] = dist[j] > thr ? 1 : 0;
+
+  // Largest connected component (4-connectivity, iterative flood fill).
+  const seen = new Uint8Array(N);
+  let comp = [], compSize = 0;
+  const stack = [];
+  for (let s = 0; s < N; s++) {
+    if (!mask[s] || seen[s]) continue;
+    const cur = []; stack.length = 0; stack.push(s); seen[s] = 1;
+    while (stack.length) {
+      const p = stack.pop(); cur.push(p);
+      const x = p % w, y = (p / w) | 0;
+      if (x > 0 && mask[p - 1] && !seen[p - 1]) { seen[p - 1] = 1; stack.push(p - 1); }
+      if (x < w - 1 && mask[p + 1] && !seen[p + 1]) { seen[p + 1] = 1; stack.push(p + 1); }
+      if (y > 0 && mask[p - w] && !seen[p - w]) { seen[p - w] = 1; stack.push(p - w); }
+      if (y < h - 1 && mask[p + w] && !seen[p + w]) { seen[p + w] = 1; stack.push(p + w); }
+    }
+    if (cur.length > compSize) { compSize = cur.length; comp = cur; }
+  }
+  if (compSize < N * 0.10) return null; // no convincing board region
+
+  // Four extreme points → quad corners (robust to rotation/perspective).
+  let tl, tr, br, bl, tlv = 1e9, brv = -1e9, trv = -1e9, blv = 1e9;
+  for (const p of comp) {
+    const x = p % w, y = (p / w) | 0, s = x + y, d = x - y;
+    if (s < tlv) { tlv = s; tl = { x, y }; }
+    if (s > brv) { brv = s; br = { x, y }; }
+    if (d > trv) { trv = d; tr = { x, y }; }
+    if (d < blv) { blv = d; bl = { x, y }; }
+  }
+  const up = (p) => ({ x: p.x / scale, y: p.y / scale });
+  return [up(tl), up(tr), up(br), up(bl)];
+}
+
 // Warp the board region into an upright rows*cols grid image (for OCR).
 export function rectifyBoard(img, quad, rows, cols, cellPx = 128) {
   const W = cols * cellPx, H = rows * cellPx;
