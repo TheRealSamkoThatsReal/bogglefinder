@@ -1,5 +1,5 @@
 import { buildTrie, solve, scoreWord } from './solver.js';
-import { bilinear, cellCenter } from './warp.js';
+import { bilinear, cellCenter, cellColorImages } from './warp.js';
 import { scanBoard } from './ocr.js';
 
 // ---------- State ----------
@@ -7,8 +7,9 @@ const state = {
   rows: 4, cols: 4,
   img: null,            // ImageBitmap of the scanned photo (EXIF-corrected)
   quad: null,           // [TL,TR,BR,BL] in img pixel coords
-  cells: [],            // grid letters, row-major: strings like 'a' or 'qu'
+  cells: [],            // grid letters, row-major: strings like 'a', 'qu', 'in'
   confidences: [],      // per-cell OCR confidence (0-100), parallel to cells
+  cellImages: [],       // per-cell cropped die image (data URL) or null
   boardBg: null,        // canvas/bitmap drawn behind the path overlay
   boardQuad: null,      // quad in boardBg pixel coords used for overlay
   results: [],          // [{ word, path, len, score }]
@@ -64,6 +65,7 @@ $('#btn-manual').addEventListener('click', () => {
   state.img = null; state.quad = null;
   state.cells = new Array(state.rows * state.cols).fill('');
   state.confidences = new Array(state.rows * state.cols).fill(100);
+  state.cellImages = new Array(state.rows * state.cols).fill(null);
   buildEditGrid();
   show('edit');
 });
@@ -164,8 +166,13 @@ window.addEventListener('resize', () => { if (state.img && screens.align.classLi
 $('#btn-back-capture').addEventListener('click', () => show('capture'));
 $('#btn-scan').addEventListener('click', runOcr);
 $('#btn-skip-ocr').addEventListener('click', () => {
-  state.cells = new Array(state.rows * state.cols).fill('');
-  state.confidences = new Array(state.rows * state.cols).fill(100);
+  const n = state.rows * state.cols;
+  state.cells = new Array(n).fill('');
+  state.confidences = new Array(n).fill(100);
+  // No OCR, but still show each die crop so letters can be read off the photo.
+  state.cellImages = (state.img && state.quad)
+    ? cellColorImages(state.img, state.quad, state.rows, state.cols)
+    : new Array(n).fill(null);
   buildEditGrid();
   show('edit');
 });
@@ -181,13 +188,18 @@ async function runOcr() {
       (done, total) => { prog.textContent = `Reading letters… ${done}/${total}`; });
     state.cells = res.map((r) => (r.char ? r.char.toLowerCase() : ''));
     state.confidences = res.map((r) => r.confidence);
+    state.cellImages = res.map((r) => r.image || null);
     buildEditGrid();
     show('edit');
   } catch (err) {
     prog.textContent = '⚠ ' + err.message + ' — you can enter letters manually instead.';
     setTimeout(() => {
-      state.cells = new Array(state.rows * state.cols).fill('');
-      state.confidences = new Array(state.rows * state.cols).fill(100);
+      const n = state.rows * state.cols;
+      state.cells = new Array(n).fill('');
+      state.confidences = new Array(n).fill(100);
+      state.cellImages = (state.img && state.quad)
+        ? cellColorImages(state.img, state.quad, state.rows, state.cols)
+        : new Array(n).fill(null);
       buildEditGrid();
       show('edit');
     }, 1500);
@@ -198,11 +210,25 @@ async function runOcr() {
 }
 
 // ---------- Edit grid ----------
+// Recognised multi-letter Boggle cubes: Qu (classic) and In (Super Big Boggle).
+// The solver treats these as one cell worth two letters.
+const BLOCKS = new Set(['QU', 'IN']);
+
 function buildEditGrid() {
   const grid = $('#edit-grid');
   grid.style.setProperty('--cols', state.cols);
+  const hasImages = state.cellImages && state.cellImages.some(Boolean);
+  grid.classList.toggle('with-images', hasImages);
   grid.innerHTML = '';
   for (let i = 0; i < state.rows * state.cols; i++) {
+    const cell = document.createElement('label');
+    cell.className = 'edit-cell';
+    if (state.cellImages && state.cellImages[i]) {
+      const im = document.createElement('img');
+      im.src = state.cellImages[i];
+      im.alt = '';
+      cell.appendChild(im);
+    }
     const inp = document.createElement('input');
     inp.className = 'cell-input';
     inp.maxLength = 2;
@@ -211,10 +237,11 @@ function buildEditGrid() {
     inp.autocapitalize = 'characters';
     inp.inputMode = 'text';
     const conf = state.confidences[i];
-    if (state.cells[i] && conf < 65) inp.classList.add('low-conf');
+    if (state.cells[i] && conf < 65) cell.classList.add('low-conf');
     inp.addEventListener('input', onCellInput);
     inp.addEventListener('focus', () => inp.select());
-    grid.appendChild(inp);
+    cell.appendChild(inp);
+    grid.appendChild(cell);
   }
   const first = grid.querySelector('input');
   if (first) first.focus();
@@ -223,14 +250,17 @@ function buildEditGrid() {
 function onCellInput(e) {
   const inp = e.target;
   let v = inp.value.replace(/[^A-Za-z]/g, '').toUpperCase();
-  if (v.length > 1 && v[0] !== 'Q') v = v[0];
-  if (v === 'Q') v = 'QU';
+  if (v.length > 2) v = v.slice(0, 2);
+  if (v.length === 2 && !BLOCKS.has(v)) v = v.slice(1); // keep the newest key
+  if (v === 'Q') v = 'QU'; // lone Q is always Qu
   inp.value = v;
-  inp.classList.remove('low-conf');
+  inp.closest('.edit-cell')?.classList.remove('low-conf');
   const i = +inp.dataset.i;
   state.cells[i] = v.toLowerCase();
-  if (v && v !== 'QU') { // auto-advance to next cell
-    const next = inp.parentElement.querySelector(`input[data-i="${i + 1}"]`);
+  // Auto-advance, but wait on a single letter that might still become a block.
+  const mayExtend = v.length === 1 && [...BLOCKS].some((b) => b[0] === v);
+  if (v && !mayExtend) {
+    const next = document.querySelector(`#edit-grid input[data-i="${i + 1}"]`);
     if (next) next.focus();
   }
 }

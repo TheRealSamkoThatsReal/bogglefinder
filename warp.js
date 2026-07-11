@@ -68,6 +68,28 @@ export function rectifyBoard(img, quad, rows, cols, cellPx = 128) {
   return cv;
 }
 
+// Crop one cell as a clean colour image (for showing the die in the edit grid,
+// so the player can see the letter's actual orientation).
+export function cropCell(rect, rows, cols, r, c, cellPx, out = 104) {
+  const inset = Math.round(cellPx * 0.06);
+  const sx = c * cellPx + inset, sy = r * cellPx + inset, s = cellPx - inset * 2;
+  const cv = document.createElement('canvas');
+  cv.width = out; cv.height = out;
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(rect, sx, sy, s, s, 0, 0, out, out);
+  return cv;
+}
+
+// Rectify the board and return a data-URL colour crop for every cell.
+export function cellColorImages(img, quad, rows, cols, cellPx = 128) {
+  const rect = rectifyBoard(img, quad, rows, cols, cellPx);
+  const arr = [];
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++)
+      arr.push(cropCell(rect, rows, cols, r, c, cellPx).toDataURL('image/png'));
+  return arr;
+}
+
 // Extract one cell as a preprocessed high-contrast canvas ready for OCR.
 export function extractCell(rectCanvas, rows, cols, r, c, cellPx, out = 140) {
   const inset = Math.round(cellPx * 0.16); // trim grid lines / die edges

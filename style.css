@@ -80,14 +80,34 @@ canvas { max-width: 100%; height: auto; touch-action: none; border-radius: 8px; 
   max-width: 420px;
   margin: 6px auto;
 }
-.cell-input {
-  aspect-ratio: 1; width: 100%;
-  text-align: center; font-size: 1.6rem; font-weight: 700; text-transform: uppercase;
-  background: var(--card-2); color: var(--text);
-  border: 2px solid var(--line); border-radius: 12px; padding: 0;
+.edit-cell {
+  position: relative; aspect-ratio: 1; display: block;
+  border: 2px solid var(--line); border-radius: 12px; overflow: hidden;
+  background: var(--card-2); cursor: text;
 }
-.cell-input:focus { outline: none; border-color: var(--accent); }
-.cell-input.low-conf { border-color: #fbbf24; background: #2a2411; }
+.edit-cell:focus-within { border-color: var(--accent); }
+.edit-cell.low-conf { border-color: #fbbf24; }
+.edit-cell img {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; background: #f4efe3;
+}
+/* No image (manual entry): the input fills the whole tile. */
+.cell-input {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  text-align: center; font-size: 1.6rem; font-weight: 700; text-transform: uppercase;
+  background: transparent; color: var(--text);
+  border: none; border-radius: 0; padding: 0;
+}
+.cell-input:focus { outline: none; }
+/* With a die crop: input becomes a readable strip along the bottom. */
+.edit-grid.with-images .cell-input {
+  inset: auto 0 0 0; height: 40%;
+  font-size: 1.25rem; letter-spacing: 1px;
+  color: var(--accent);
+  background: rgba(9, 14, 24, 0.82);
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+.edit-grid.with-images .cell-input::placeholder { color: var(--muted); }
 
 /* Results */
 .results-layout { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 16px; align-items: start; }

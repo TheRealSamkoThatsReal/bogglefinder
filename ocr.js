@@ -1,5 +1,5 @@
 // OCR wrapper around Tesseract.js (lazy-loaded from CDN).
-import { rectifyBoard, extractCell } from './warp.js';
+import { rectifyBoard, extractCell, cropCell } from './warp.js';
 
 const TESS_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
 let workerPromise = null;
@@ -59,6 +59,7 @@ export async function scanBoard(img, quad, rows, cols, onProgress) {
         char,
         confidence: char ? Math.round(Math.max(0, best.confidence)) : 0,
         rotation: best.rotation,
+        image: cropCell(rect, rows, cols, r, c, CELL_PX).toDataURL('image/png'),
       });
       onProgress && onProgress(++done, total);
     }
