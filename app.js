@@ -491,6 +491,12 @@ $('#btn-restart').addEventListener('click', () => { state.selectedWord = null; s
 $('#btn-edit-again').addEventListener('click', () => { buildEditGrid(); show('edit'); });
 window.addEventListener('resize', () => { if (state.boardBg && screens.results.classList.contains('active')) fitOverlay(); });
 
+// ---------- Version ----------
+// Bump on each release; keep the sw.js cache name in step so clients refresh.
+const APP_VERSION = '1.1.0';
+const vEl = $('#app-version');
+if (vEl) vEl.textContent = 'v' + APP_VERSION;
+
 // ---------- Service worker ----------
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));

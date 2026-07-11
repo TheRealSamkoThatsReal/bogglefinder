@@ -23,6 +23,10 @@ body {
 .app-header { text-align: center; padding: 22px 16px 6px; }
 .app-header h1 { margin: 0; font-size: 1.6rem; letter-spacing: -0.5px; }
 .tagline { margin: 4px 0 0; color: var(--muted); font-size: 0.85rem; }
+.app-footer { text-align: center; padding: 18px 16px 28px; color: var(--muted); font-size: 0.78rem; }
+.app-footer a { color: var(--muted); text-decoration: none; }
+.app-footer a:hover { color: var(--text); }
+.app-footer #app-version { margin-left: 6px; opacity: 0.85; }
 
 main { max-width: 1080px; margin: 0 auto; padding: 12px 14px 40px; }
 
