@@ -1,5 +1,5 @@
 import { buildTrie, solve, scoreWord } from './solver.js';
-import { bilinear, cellCenter, cellColorImages, autoDetectQuad } from './warp.js';
+import { bilinear, cellCenter, cellColorImages, autoDetectQuad, rectifyBoard } from './warp.js';
 import { scanBoard } from './ocr.js';
 
 // ---------- State ----------
@@ -352,8 +352,14 @@ async function doSolve() {
 // Build the background image + quad used for the path overlay.
 function prepareBoardBackground() {
   if (state.img && state.quad) {
-    state.boardBg = state.img;
-    state.boardQuad = state.quad;
+    // Rectify to a straight-on, cropped board so the path is drawn on an upright
+    // grid rather than the original angled photo.
+    const cp = 128;
+    state.boardBg = rectifyBoard(state.img, state.quad, state.rows, state.cols, cp);
+    state.boardQuad = [
+      { x: 0, y: 0 }, { x: state.cols * cp, y: 0 },
+      { x: state.cols * cp, y: state.rows * cp }, { x: 0, y: state.rows * cp },
+    ];
   } else {
     // Synthesise a board image from the letters (manual-entry mode).
     const cp = 100;
@@ -493,7 +499,7 @@ window.addEventListener('resize', () => { if (state.boardBg && screens.results.c
 
 // ---------- Version ----------
 // Bump on each release; keep the sw.js cache name in step so clients refresh.
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const vEl = $('#app-version');
 if (vEl) vEl.textContent = 'v' + APP_VERSION;
 

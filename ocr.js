@@ -278,7 +278,8 @@ function isolate(cellData) {
   // Erode the die silhouette inward to shed the bevel shadow ring (the dark arc
   // where the die meets the tray), which otherwise sticks to the letter.
   const rad = Math.max(2, Math.round(0.13 * dieMax));
-  const interior = erode(fillPolygon(hull, W, W), W, W, rad);
+  const silFull = fillPolygon(hull, W, W);
+  const interior = erode(silFull, W, W, rad);
   let interiorCount = 0;
   for (let j = 0; j < N; j++) interiorCount += interior[j];
   if (interiorCount < 50) return null;
@@ -310,24 +311,71 @@ function isolate(cellData) {
   if (!keep.size) return null;
 
   const out = new Uint8Array(N);
-  let count = 0;
-  for (let p = 0; p < N; p++) if (keep.has(li.lab[p])) { out[p] = 1; count++; }
+  let count = 0, lcx = 0, lcy = 0;
+  for (let p = 0; p < N; p++) if (keep.has(li.lab[p])) { out[p] = 1; count++; lcx += p % W; lcy += (p / W) | 0; }
   if (count < 12) return null;
+  lcx /= count; lcy /= count;
   const m = { w: W, h: W, data: out };
   const b = bbox(m);
   if (!b) return null;
-  // Return a tight crop.
+  // Return a tight crop, plus the orientation-dot direction (if any) for the
+  // rotationally-confusable cubes.
   const tight = new Uint8Array(b.w * b.h);
   for (let y = 0; y < b.h; y++)
     for (let x = 0; x < b.w; x++)
       tight[y * b.w + x] = out[(b.miny + y) * W + (b.minx + x)];
-  return { w: b.w, h: b.h, data: tight };
+  const dotAngle = findDot(silFull, gray, facemean * 0.72, out, lcx, lcy, dieMax, W, N);
+  return { w: b.w, h: b.h, data: tight, dotAngle };
+}
+
+// Some Boggle cubes print a small dot under the letter to mark "down" (so M vs W
+// and Z vs N can be told apart). Find a small, compact ink blob that sits inside
+// the die but apart from the letter; return the clockwise-from-up angle pointing
+// at it (i.e. the letter's "down"), or null if there's no unambiguous single dot.
+function findDot(sil, gray, thr, letter, lcx, lcy, dieMax, W, N) {
+  const dark = new Uint8Array(N);
+  let dieArea = 0;
+  for (let j = 0; j < N; j++) { if (sil[j]) { dieArea++; if (gray[j] < thr) dark[j] = 1; } }
+  const { lab, n, sizes } = label4(dark, W, W);
+  if (!n) return null;
+  const overlap = new Float64Array(n + 1), cx = new Float64Array(n + 1), cy = new Float64Array(n + 1);
+  const bx0 = new Int32Array(n + 1).fill(W), by0 = new Int32Array(n + 1).fill(W);
+  const bx1 = new Int32Array(n + 1).fill(-1), by1 = new Int32Array(n + 1).fill(-1);
+  for (let p = 0; p < N; p++) {
+    const l = lab[p]; if (!l) continue;
+    const x = p % W, y = (p / W) | 0;
+    cx[l] += x; cy[l] += y; if (letter[p]) overlap[l]++;
+    if (x < bx0[l]) bx0[l] = x; if (x > bx1[l]) bx1[l] = x;
+    if (y < by0[l]) by0[l] = y; if (y > by1[l]) by1[l] = y;
+  }
+  const minA = 0.003 * dieArea, maxA = 0.05 * dieArea;
+  const cands = [];
+  for (let i = 1; i <= n; i++) {
+    const s = sizes[i];
+    if (s < minA || s > maxA) continue;
+    if (overlap[i] > 0.15 * s) continue;          // part of the letter itself
+    const bw = bx1[i] - bx0[i] + 1, bh = by1[i] - by0[i] + 1;
+    if (Math.max(bw, bh) / Math.min(bw, bh) > 1.8) continue; // not roundish
+    if (s / (bw * bh) < 0.5) continue;            // not solid/compact
+    const dcx = cx[i] / s, dcy = cy[i] / s;
+    if (Math.hypot(dcx - lcx, dcy - lcy) < 0.15 * dieMax) continue; // basically on the letter
+    cands.push({ dcx, dcy });
+  }
+  if (cands.length !== 1) return null;            // only trust a single clear dot
+  let ang = Math.atan2(cands[0].dcx - lcx, -(cands[0].dcy - lcy)) * 180 / Math.PI;
+  return ang < 0 ? ang + 360 : ang;
 }
 
 // ---------- matching ----------
-function classify(mask) {
+// These read as rotations of each other, so free rotation can't tell them apart;
+// the orientation dot decides. Cubes that carry a dot: M, W, Z (not N).
+const AMBIGUOUS = new Set(['M', 'W', 'Z', 'N']);
+const DOTTED = new Set(['M', 'W', 'Z']);
+
+// Best NCC per template across the given glyph rotations.
+function matchAngles(mask, angles) {
   const scores = new Map();
-  for (const deg of ANGLES) {
+  for (const deg of angles) {
     const rv = normVec(rotateMask(mask, deg));
     if (!rv) continue;
     for (const t of templates) {
@@ -337,8 +385,29 @@ function classify(mask) {
       if (dot > (scores.get(t.name) ?? -2)) scores.set(t.name, dot);
     }
   }
-  if (!scores.size) return { char: '', confidence: 0 };
-  const ranked = [...scores.entries()].sort((a, b) => b[1] - a[1]);
+  return [...scores.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+function classify(mask) {
+  let ranked = matchAngles(mask, ANGLES);
+  if (!ranked.length) return { char: '', confidence: 0 };
+
+  // Disambiguate M/W/Z/N with the orientation dot when the top guess is one.
+  if (AMBIGUOUS.has(ranked[0][0])) {
+    if (mask.dotAngle != null) {
+      // Re-read at the orientation that puts the dot at the bottom.
+      const canon = ((180 - mask.dotAngle) % 360 + 360) % 360;
+      const angles = [];
+      for (let d = -20; d <= 20; d += 5) angles.push(((canon + d) % 360 + 360) % 360);
+      const r2 = matchAngles(mask, angles);
+      if (r2.length) ranked = r2;
+    } else {
+      // No dot ⇒ it can't be a dotted cube; drop those and re-pick (usually N).
+      const r2 = ranked.filter(([n]) => !DOTTED.has(n));
+      if (r2.length) ranked = r2;
+    }
+  }
+
   let bestName = ranked[0][0];
   const best = ranked[0][1];
   const runnerUp = ranked[1] ? ranked[1][1] : 0;
