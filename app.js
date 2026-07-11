@@ -48,16 +48,11 @@ $('#size-select').addEventListener('change', (e) => {
 async function loadImageFile(file) {
   const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
   state.img = bitmap;
+  // Start from a predictable centred rectangle; auto-detect is opt-in via the
+  // Auto-fit button because it isn't reliable on every board/background.
   state.quad = defaultQuad(bitmap);
-  const auto = tryAutoDetect(); // snap corners to the tray if we can find it
   show('align');
   setupAlign();
-  const prog = $('#ocr-progress');
-  if (auto) {
-    prog.hidden = false;
-    prog.textContent = 'Corners auto-detected — drag any dot to fine-tune.';
-    setTimeout(() => { prog.hidden = true; }, 2800);
-  }
 }
 
 function defaultQuad(bitmap) {
@@ -130,6 +125,15 @@ function drawAlign() {
     actx.beginPath(); actx.moveTo(a.x, a.y); actx.lineTo(b.x, b.y); actx.stroke();
   }
 
+  // Cell-centre dots: exactly where each die will be sampled.
+  actx.fillStyle = 'rgba(240,171,252,0.95)';
+  for (let r = 0; r < state.rows; r++) {
+    for (let c = 0; c < state.cols; c++) {
+      const p = cellCenter(q, state.rows, state.cols, r, c);
+      actx.beginPath(); actx.arc(p.x, p.y, 3.5, 0, Math.PI * 2); actx.fill();
+    }
+  }
+
   const labels = ['TL', 'TR', 'BR', 'BL'];
   for (let i = 0; i < 4; i++) {
     actx.beginPath();
@@ -141,6 +145,40 @@ function drawAlign() {
     actx.textAlign = 'center'; actx.textBaseline = 'middle';
     actx.fillText(labels[i], q[i].x, q[i].y);
   }
+
+  if (dragHandle >= 0) drawLoupe(q[dragHandle], state.quad[dragHandle]);
+}
+
+// Zoomed circular view around the corner being dragged, so it can be placed
+// precisely even when the finger/cursor covers the spot.
+function drawLoupe(handleDisp, handleSrc) {
+  const R = Math.max(52, alignCanvas.width * 0.13);
+  const zoom = 3;
+  const m = R + 14;
+  // Put the loupe in the corner farthest from the handle.
+  const lx = handleDisp.x < alignCanvas.width / 2 ? alignCanvas.width - m : m;
+  const ly = handleDisp.y < alignCanvas.height / 2 ? alignCanvas.height - m : m;
+  const s = alignScale * zoom;
+
+  actx.save();
+  actx.beginPath();
+  actx.arc(lx, ly, R, 0, Math.PI * 2);
+  actx.closePath();
+  actx.clip();
+  actx.fillStyle = '#000';
+  actx.fillRect(lx - R, ly - R, R * 2, R * 2);
+  actx.drawImage(state.img, lx - handleSrc.x * s, ly - handleSrc.y * s,
+    state.img.width * s, state.img.height * s);
+  actx.restore();
+
+  actx.beginPath();
+  actx.arc(lx, ly, R, 0, Math.PI * 2);
+  actx.strokeStyle = '#5eead4'; actx.lineWidth = 3; actx.stroke();
+  actx.strokeStyle = 'rgba(240,171,252,0.95)'; actx.lineWidth = 1.5;
+  actx.beginPath();
+  actx.moveTo(lx - 14, ly); actx.lineTo(lx + 14, ly);
+  actx.moveTo(lx, ly - 14); actx.lineTo(lx, ly + 14);
+  actx.stroke();
 }
 
 function canvasPoint(evt) {
